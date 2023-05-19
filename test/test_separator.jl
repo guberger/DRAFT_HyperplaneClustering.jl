@@ -17,18 +17,18 @@ N = 2
 rmax = 100.0
 
 ## Empty
-xsneg = Vector{Float64}[]
-xspos = Vector{Float64}[]
-af, r = HC.separating_hyperplane(xsneg, xspos, N, rmax, solver)
+xs_neg = Vector{Float64}[]
+xs_pos = Vector{Float64}[]
+af, r = HC.separating_hyperplane(xs_neg, xs_pos, N, rmax, solver)
 
 @testset "empty" begin
     @test r ≈ rmax
 end
 
 ## Set 2D #1
-xsneg = [[1.0, 1.0]]
-xspos = [[0.0, 0.0]]
-af, r = HC.separating_hyperplane(xsneg, xspos, N, rmax, solver)
+xs_neg = [[1.0, 1.0]]
+xs_pos = [[0.0, 0.0]]
+af, r = HC.separating_hyperplane(xs_neg, xs_pos, N, rmax, solver)
 
 @testset "diagonal" begin
     @test r ≈ sqrt(0.5)
@@ -36,18 +36,18 @@ af, r = HC.separating_hyperplane(xsneg, xspos, N, rmax, solver)
     @test abs(af.β - sqrt(0.5)) < 1e-8
 end
 
-xsneg = [[0.0, 0.0]]
-xspos = Vector{Float64}[]
-af, r = HC.separating_hyperplane(xsneg, xspos, N, rmax, solver)
+xs_neg = [[0.0, 0.0]]
+xs_pos = Vector{Float64}[]
+af, r = HC.separating_hyperplane(xs_neg, xs_pos, N, rmax, solver)
 
 @testset "half empty" begin
     @test r ≈ rmax
 end
 
 ## Set 2D #2 feasible
-xsneg = [[0.0, 0.0], [4.0, 0.0]]
-xspos = [[8.0, 0.0]]
-af, r = HC.separating_hyperplane(xsneg, xspos, N, rmax, solver)
+xs_neg = [[0.0, 0.0], [4.0, 0.0]]
+xs_pos = [[8.0, 0.0]]
+af, r = HC.separating_hyperplane(xs_neg, xs_pos, N, rmax, solver)
 
 @testset "horizontal feasible" begin
     @test r ≈ 2
@@ -56,9 +56,9 @@ af, r = HC.separating_hyperplane(xsneg, xspos, N, rmax, solver)
 end
 
 ## Set 2D #2 infeasible
-xsneg = [[0.0, 0.0], [4.0, 0.0]]
-xspos = [[2.0, 0.0]]
-af, r = HC.separating_hyperplane(xsneg, xspos, N, rmax, solver)
+xs_neg = [[0.0, 0.0], [4.0, 0.0]]
+xs_pos = [[2.0, 0.0]]
+af, r = HC.separating_hyperplane(xs_neg, xs_pos, N, rmax, solver)
 
 @testset "horizontal infeasible" begin
     @test abs(r) < 1e-8
@@ -68,13 +68,13 @@ end
 
 ## Simplex
 function test_simplex(N)
-    xsneg = [zeros(N)]
-    xspos = []
+    xs_neg = [zeros(N)]
+    xs_pos = []
     for i = 1:N
-        push!(xsneg, [j == i ? 1.0 : 0.0 for j = 1:N])
-        push!(xspos, [j == i ? 2.0 : 0.0 for j = 1:N])
+        push!(xs_neg, [j == i ? 1.0 : 0.0 for j = 1:N])
+        push!(xs_pos, [j == i ? 2.0 : 0.0 for j = 1:N])
     end
-    af, r = HC.separating_hyperplane(xsneg, xspos, N, rmax, solver)
+    af, r = HC.separating_hyperplane(xs_neg, xs_pos, N, rmax, solver)
 
     @testset "simplex feasible $(N)" begin
         @test r ≈ 0.5/sqrt(N)
@@ -82,8 +82,8 @@ function test_simplex(N)
         @test abs(af.β + 1.5/sqrt(N)) < 1e-8
     end
 
-    push!(xspos, ones(N)/(2*N))
-    af, r = HC.separating_hyperplane(xsneg, xspos, N, rmax, solver)
+    push!(xs_pos, ones(N)/(2*N))
+    af, r = HC.separating_hyperplane(xs_neg, xs_pos, N, rmax, solver)
 
     @testset "simplex infeasible $(N)" begin
         @test abs(r) < 1e-8
