@@ -1,8 +1,9 @@
-using LinearAlgebra
+module MyTest
+
 using JuMP
 using CSDP
 using Test
-@static if isdefined(Main, :TestLocal) && TestLocal
+@static if isdefined(Main, :TestLocal) && Main.TestLocal
     include("../src/HyperplaneClustering.jl")
 else
     using HyperplaneClustering
@@ -32,8 +33,8 @@ af, r = HC.separating_hyperplane(xs_neg, xs_pos, N, rmax, solver)
 
 @testset "diagonal" begin
     @test r ≈ sqrt(0.5)
-    @test norm(af.a - [-1, -1]/sqrt(2)) < 1e-8
-    @test abs(af.β - sqrt(0.5)) < 1e-8
+    @test af.a ≈ [-1, -1]/sqrt(2)
+    @test af.β ≈ sqrt(0.5)
 end
 
 xs_neg = [[0.0, 0.0]]
@@ -51,8 +52,8 @@ af, r = HC.separating_hyperplane(xs_neg, xs_pos, N, rmax, solver)
 
 @testset "horizontal feasible" begin
     @test r ≈ 2
-    @test norm(af.a - [1, 0]) < 1e-8
-    @test abs(af.β + 6) < 1e-8
+    @test af.a ≈ [1, 0]
+    @test af.β ≈ -6
 end
 
 ## Set 2D #2 infeasible
@@ -61,9 +62,9 @@ xs_pos = [[2.0, 0.0]]
 af, r = HC.separating_hyperplane(xs_neg, xs_pos, N, rmax, solver)
 
 @testset "horizontal infeasible" begin
-    @test abs(r) < 1e-8
-    @test norm(af.a) < 1e-8
-    @test abs(af.β) < 1e-8
+    @test ≈(r, 0, atol=1e-8)
+    @test ≈(af.a, [0, 0], atol=1e-8)
+    @test ≈(af.β, 0, atol=1e-8)
 end
 
 ## Simplex
@@ -78,17 +79,17 @@ function test_simplex(N)
 
     @testset "simplex feasible $(N)" begin
         @test r ≈ 0.5/sqrt(N)
-        @test norm(af.a - ones(N)/sqrt(N)) < 1e-8
-        @test abs(af.β + 1.5/sqrt(N)) < 1e-8
+        @test af.a ≈ ones(N)/sqrt(N)
+        @test af.β ≈ -1.5/sqrt(N)
     end
 
     push!(xs_pos, ones(N)/(2*N))
     af, r = HC.separating_hyperplane(xs_neg, xs_pos, N, rmax, solver)
 
     @testset "simplex infeasible $(N)" begin
-        @test abs(r) < 1e-8
-        @test norm(af.a) < 1e-8
-        @test abs(af.β) < 1e-8
+        @test ≈(r, 0, atol=1e-8)
+        @test ≈(af.a, zeros(Int, N), atol=1e-8)
+        @test ≈(af.β, 0, atol=1e-8)
     end
 end
 
@@ -96,4 +97,4 @@ for N = 1:10
     test_simplex(N)
 end
 
-nothing
+end # module

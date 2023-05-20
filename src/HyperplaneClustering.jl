@@ -1,7 +1,6 @@
 module HyperplaneClustering
 
 using LinearAlgebra
-using DataStructures
 using JuMP
 
 struct AffForm
@@ -9,7 +8,7 @@ struct AffForm
     β::Float64
 end
 
-evalf(af::AffForm, x::AbstractVector) = dot(af.a, x) + β
+evalf(af::AffForm, x) = dot(af.a, x) + af.β
 
 function separating_hyperplane(xs_neg, xs_pos, N, rmax, solver)
     model = solver()
@@ -41,14 +40,10 @@ struct Node
 end
 
 function processdata(data)
-    M = maximum(datum -> datum.σ, data, init=0)::Int
+    Q = maximum(datum -> datum.σ, data, init=0)::Int
     datavec = [datum for datum in data]::Vector{Datum}
     xs = [datum.x for datum in datavec]
-    classes = [Int[] for q = 1:M]
-    for (i, datum) in enumerate(datavec)
-        push!(classes[datum.σ], i)
-    end
-    return classes, xs
+    return datavec, xs, Q
 end
 
 nanafs(N) = AffForm(fill(NaN, N), NaN)
@@ -70,52 +65,121 @@ function candidate_generation!(afs, xs_neg, xs_pos,
         af, r = separating_hyperplane(xs_neg, xs_pos, N, rmax, solver)
         r < ϵ && return false
         afs[k] = af
-        return true
     end
+    return true
 end
 
-oppositesign(v, w) = ((v > 1e-8) && (w < 1e-8)) || ((v < 1e-8) && (w > 1e-8))
+signfs(afs::Vector{AffForm}, x) = [evalf(af, x) > 0 for af in afs]
 
-function are_separate_vectors(afs, x1, x2)
-    for af in afs
-        oppositesign(evalf(af, x1), evalf(af, x2)) && return true
+function classify(afs, datavec, Q)
+    classes = Dict{UInt,Vector{Vector{Int}}}()
+    for (i, datum) in enumerate(datavec)
+        c = hash(signfs(afs, datum.x))
+        indsets = get(classes, c, [Int[] for q = 1:Q])
+        push!(indsets[datum.σ], i)
+        classes[c] = indsets
     end
-    return false
+    return classes
 end
 
-function are_separate_sets(afs, x1s, x2s)
+function closest_distance(x1s, x2s)
+    distmin = Inf
+    j1opt, j2opt = -1, -1
     for (j1, x1) in enumerate(x1s)
         for (j2, x2) in enumerate(x2s)
-            !are_separate_vectors(afs, x1, x2) && return j1, j2
-        end
-    end
-    return -1, -1
-end
-
-function candidate_verification!(x1s, x2s, afs, xs, classes)
-    Q = length(classes)
-    for q1 = 1:Q
-        populatexs!(x1s, classes[q1], xs)
-        for q2 = (q1 + 1):Q
-            populatexs!(x2s, classes[q2], xs)
-            j1, j2 = are_separate_sets(afs, x1s, x2s)
-            if j1 > 0 && j2 > 0
-                return classes[q1][j1], classes[q2][j2]
+            dist = norm(x1 - x2)
+            if dist < distmin
+                distmin = dist
+                j1opt, j2opt = j1, j2
             end
         end
     end
-    return -1, -1
+    return distmin, j1opt, j2opt
+end
+
+function candidate_verification!(xlists, afs, datavec, xs, Q)
+    classes = classify(afs, datavec, Q)
+    distmin = Inf
+    i1opt, i2opt = -1, -1
+    for indsets in values(classes)
+        for q = 1:Q
+            populatexs!(xlists[q], indsets[q], xs)
+        end
+        for q1 = 1:Q
+            for q2 = (q1 + 1):Q
+                dist, j1, j2 = closest_distance(xlists[q1], xlists[q2])
+                if dist < distmin
+                    distmin = dist
+                    i1opt, i2opt = indsets[q1][j1], indsets[q2][j2]
+                end
+            end
+        end
+    end
+    return distmin, i1opt, i2opt
+end
+
+function copypush(A::Vector{T}, x::T) where T
+    L = length(A) + 1
+    B = Vector{T}(undef, L)
+    @inbounds copyto!(B, A)
+    @inbounds B[L] = x
+    return B
+end
+
+function child_node(node, k, ineg::Int, ipos::Int)
+    indsets_neg = copy(node.indsets_neg)
+    indsets_neg[k] = copypush(indsets_neg[k], ineg)
+    indsets_pos = copy(node.indsets_pos)
+    indsets_pos[k] = copypush(indsets_pos[k], ipos)
+    return Node(indsets_neg, indsets_pos)
+end
+
+function child_node(node, k, ineg::Int, ::Nothing)
+    indsets_neg = copy(node.indsets_neg)
+    indsets_neg[k] = copypush(indsets_neg[k], ineg)
+    return Node(indsets_neg, node.indsets_pos)
+end
+
+function child_node(node, k, ::Nothing, ipos::Int)
+    indsets_pos = copy(node.indsets_pos)
+    indsets_pos[k] = copypush(indsets_pos[k], ipos)
+    return Node(node.indsets_neg, indsets_pos)
+end
+
+function add_nodes!(tree, node, k, i1, i2)::Bool
+    if isempty(node.indsets_neg[k]) && isempty(node.indsets_pos[k])
+        push!(tree, child_node(node, k, i1, i2))
+        return true
+    end
+    for (j1, j2) in ((i1, i2), (i2, i1))
+        if j1 ∈ node.indsets_neg[k]
+            push!(tree, child_node(node, k, nothing, j2))
+            return false
+        end
+        if j1 ∈ node.indsets_pos[k]
+            push!(tree, child_node(node, k, j2, nothing))
+            return false
+        end
+    end
+    push!(tree, child_node(node, k, i1, i2))
+    push!(tree, child_node(node, k, i2, i1))
+    return false
+end
+
+function add_children!(tree, node, i1, i2, K)
+    for k = 1:K
+        add_nodes!(tree, node, k, i1, i2) && break
+    end
 end
 
 function learn_hyperplanes(data, N, K, ϵ, solver)
-    classes, xs = processdata(data)
+    datavec, xs, Q = processdata(data)
     root = Node([Int[] for k = 1:K], [Int[] for k = 1:K])
     tree = [root]
     afs = [nanafs(N) for k = 1:K]
     xs_neg = Vector{Float64}[]
     xs_pos = Vector{Float64}[]
-    x1s = Vector{Float64}[]
-    x2s = Vector{Float64}[]
+    xlists = [Vector{Float64}[] for q = 1:Q]
     rmax = 1.0
 
     while !isempty(tree)
@@ -124,55 +188,20 @@ function learn_hyperplanes(data, N, K, ϵ, solver)
         # Candidate generation
         !candidate_generation!(afs, xs_neg, xs_pos,
                                node, xs,
-                               N, Kd, ϵ, rmax, solver) && continue
+                               N, K, ϵ, rmax, solver) && continue
 
         # Candidate verification
-        i1, i2 = candidate_verification!(x1s, x2s, afs, xs, classes)
+        dist, i1, i2 = candidate_verification!(xlists, afs, datavec, xs, Q)
+        @assert dist > 0
         if i1 < 0 || i2 < 0
             return afs, true
         end
 
         # Branching
-        for k = 1:K
-            if isempty(node.indsets_neg[k]) && isempty(node.indsets_pos[k])
-                indsets_neg = copy(node.indsets_neg)
-                indsets_neg[k] = union(indsets_neg[k], [i1])
-                indsets_pos = copy(node.indsets_pos)
-                indsets_pos[k] = union(indsets_pos[k], [i2])
-                push!(tree, Node(indsets_neg, indsets_pos))
-                break
-            elseif i1 ∈ node.indsets_pos[k]
-                indsets_neg = copy(node.indsets_neg)
-                indsets_neg[k] = union(indsets_neg[k], [i2])
-                push!(tree, Node(indsets_neg, node.indsets_pos))
-            elseif i1 ∈ node.indsets_neg[k]
-                indsets_pos = copy(node.indsets_pos)
-                indsets_pos[k] = union(indsets_pos[k], [i2])
-                push!(tree, Node(node.indsets_neg, indsets_pos))
-            elseif i2 ∈ node.indsets_pos[k]
-                indsets_neg = copy(node.indsets_neg)
-                indsets_neg[k] = union(indsets_neg[k], [i1])
-                push!(tree, Node(indsets_neg, node.indsets_pos))
-            elseif i2 ∈ node.indsets_neg[k]
-                indsets_pos = copy(node.indsets_pos)
-                indsets_pos[k] = union(indsets_pos[k], [i1])
-                push!(tree, Node(node.indsets_neg, indsets_pos))
-            else
-                indsets_neg = copy(node.indsets_neg)
-                indsets_neg[k] = union(indsets_neg[k], [i1])
-                indsets_pos = copy(node.indsets_pos)
-                indsets_pos[k] = union(indsets_pos[k], [i2])
-                push!(tree, Node(indsets_neg, indsets_pos))
-                indsets_neg = copy(node.indsets_neg)
-                indsets_neg[k] = union(indsets_neg[k], [i2])
-                indsets_pos = copy(node.indsets_pos)
-                indsets_pos[k] = union(indsets_pos[k], [i1])
-                push!(tree, Node(indsets_neg, indsets_pos))
-            end
-        end
+        add_children!(tree, node, i1, i2, K)
     end
-end
 
-return afs, false
+    return afs, false
+end
 
 end # module HyperplaneClustering
