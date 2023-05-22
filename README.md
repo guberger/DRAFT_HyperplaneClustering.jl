@@ -10,4 +10,6 @@
 [codecov-img]: http://codecov.io/github/guberger/DRAFT_HyperplaneClustering.jl/coverage.svg?branch=main
 [codecov-url]: http://codecov.io/github/guberger/DRAFT_HyperplaneClustering.jl?branch=main
 
+![GUI](https://github.com/guberger/DRAFT_HyperplaneClustering.jl/blob/main/illustration-clustering.png)
+
 ## References

@@ -53,6 +53,7 @@ for af in afs
     contour!(x, y, f, levels=[0], lw=2.0)
 end
 
+savefig(string(@__DIR__, "./figures/simple2D.png"))
 display(plt)
 
 end # module
